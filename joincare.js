@@ -53,6 +53,7 @@ async function signedPost(urlPath, body, uid, authToken) {
     body: bodyStr,
   });
   const text = await res.text();
+  console.log(`[debug] POST ${urlPath} →`, text.slice(0, 300));
   return text ? JSON.parse(text) : {};
 }
 
@@ -65,6 +66,7 @@ async function signedGet(urlPath, uid, authToken) {
     headers: { ...HEADERS, 'Jc-Person': String(uid), 'Jc-Sign': authToken, 'Jc-Request-Id': requestId, 'Jc-Time': jcTime, 'Jc-Signature': sig },
   });
   const text = await res.text();
+  console.log(`[debug] GET ${urlPath} →`, text.slice(0, 300));
   return text ? JSON.parse(text) : {};
 }
 
