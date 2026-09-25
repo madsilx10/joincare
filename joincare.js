@@ -53,7 +53,6 @@ async function signedPost(urlPath, body, uid, authToken) {
     body: bodyStr,
   });
   const text = await res.text();
-  console.log(`[debug] POST ${urlPath} →`, text.slice(0, 300));
   return text ? JSON.parse(text) : {};
 }
 
@@ -66,7 +65,6 @@ async function signedGet(urlPath, uid, authToken) {
     headers: { ...HEADERS, 'Jc-Person': String(uid), 'Jc-Sign': authToken, 'Jc-Request-Id': requestId, 'Jc-Time': jcTime, 'Jc-Signature': sig },
   });
   const text = await res.text();
-  console.log(`[debug] GET ${urlPath} →`, text.slice(0, 300));
   return text ? JSON.parse(text) : {};
 }
 
@@ -111,13 +109,12 @@ async function getTaskInfo({ uid, authToken }) {
 }
 
 // ---- CheckIn ----
-async function checkIn({ wallet, walletAddress, uid, authToken }) {
-  const infoRes = await signedGet('/client/taskhall/v1/checkIn/info', uid, authToken);
-  const info = infoRes?.data;
-  const today = new Date().toISOString().slice(0, 10);
+async function checkIn({ wallet, walletAddress, uid, authToken }, taskInfo) {
+  const info = taskInfo?.checkInTask;
+  const todayDate = new Date().getUTCDate();
 
-  if (info?.chainStatus === 'confirmed' && info?.checkInDate === today) {
-    console.log(`[~] CheckIn sudah dilakukan hari ini (${today}), skip tx`);
+  if (info?.status === 'COMPLETED' && info?.checkedDates?.includes(todayDate)) {
+    console.log(`[~] CheckIn sudah dilakukan hari ini, skip tx`);
     return info;
   }
 
@@ -257,7 +254,6 @@ const ALL_SESSIONS = fs.existsSync('sessions.txt')
   ? fs.readFileSync('sessions.txt', 'utf-8').split('\n').map(l => l.trim()).filter(Boolean)
   : [];
 
-// akun.txt: 2 baris per akun (authToken, ct0)
 const ALL_X_ACCOUNTS = (() => {
   if (!fs.existsSync('akun.txt')) return [];
   const lines = fs.readFileSync('akun.txt', 'utf-8').split('\n').map(l => l.trim()).filter(Boolean);
@@ -271,13 +267,8 @@ const ALL_X_ACCOUNTS = (() => {
 (async () => {
   console.log(`\n===== JOINCARE BOT =====`);
   console.log(`Wallet: ${ALL_KEYS.length} | TG: ${ALL_SESSIONS.length} | X: ${ALL_X_ACCOUNTS.length}`);
-  console.log(`\n  1. Semua task (skip yg sudah selesai)`);
-  console.log(`  2. Daily checkin aja`);
-  const task = await prompt('\nTask (1/2): ');
+  console.log(`\n  1. Satu akun\n  2. Semua akun\n  3. Dari akun X sampai akhir`);
 
-  console.log(`\n  1. Satu akun`);
-  console.log(`  2. Semua akun`);
-  console.log(`  3. Dari akun X sampai akhir`);
   const mode = await prompt('\nMode (1/2/3): ');
   let indices = [];
   if (mode === '1') {
@@ -291,6 +282,9 @@ const ALL_X_ACCOUNTS = (() => {
   } else {
     console.log('[-] Pilihan tidak valid.'); process.exit(1);
   }
+
+  console.log(`\n  1. Semua task (skip yg sudah selesai)\n  2. Daily checkin aja`);
+  const task = await prompt('\nTask (1/2): ');
   process.stdin.destroy();
 
   for (const i of indices) {
@@ -300,14 +294,11 @@ const ALL_X_ACCOUNTS = (() => {
 
     try {
       const account = await connectWallet(pk);
+      const taskInfo = await getTaskInfo(account);
 
-      // Daily checkin (ada skip internal kalau udah)
-      await checkIn(account);
+      await checkIn(account, taskInfo);
 
-      // Task lain hanya kalau mode "semua"
       if (task === '1') {
-        const taskInfo = await getTaskInfo(account);
-
         if (taskInfo?.telegramTask?.status === 'COMPLETED') {
           console.log(`[~] Bind TG sudah selesai, skip`);
         } else if (!session) {
