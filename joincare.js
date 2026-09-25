@@ -1,5 +1,5 @@
 const { ethers } = require('ethers');
-const axios = require('axios');
+const fs = require('fs');
 
 const INVITE_CODE = 'RXC9Q0';
 const BASE_URL = 'https://joincarelabs.com';
@@ -17,6 +17,22 @@ const HEADERS = {
   'Origin': BASE_URL,
 };
 
+async function get(url, params = {}) {
+  const u = new URL(url);
+  Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+  const res = await fetch(u, { headers: HEADERS });
+  return res.json();
+}
+
+async function post(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: HEADERS,
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
 async function connectWallet(privateKey) {
   const wallet = new ethers.Wallet(privateKey);
   const walletAddress = wallet.address;
@@ -24,57 +40,43 @@ async function connectWallet(privateKey) {
   console.log(`\n[*] Processing: ${walletAddress}`);
 
   // Step 1: Check registration status
-  const statusRes = await axios.get(`${BASE_URL}/client/login/v1/registrationStatus`, {
-    params: { walletAddress },
-    headers: HEADERS,
-  });
-
-  const { registered } = statusRes.data.data;
+  const statusRes = await get(`${BASE_URL}/client/login/v1/registrationStatus`, { walletAddress });
+  const { registered } = statusRes.data;
   console.log(`[*] Registered: ${registered}`);
 
   // Step 2: Get nonce
-  const nonceRes = await axios.get(`${BASE_URL}/client/auth/v1/nonce`, {
-    params: { walletAddress, action: 'register' },
-    headers: HEADERS,
-  });
-
-  const { nonce, message } = nonceRes.data.data;
+  const nonceRes = await get(`${BASE_URL}/client/auth/v1/nonce`, { walletAddress, action: 'register' });
+  const { nonce, message } = nonceRes.data;
   console.log(`[*] Nonce: ${nonce}`);
 
-  // Step 3: Sign message (EIP-191 personal_sign)
+  // Step 3: Sign message (EIP-191)
   const signature = await wallet.signMessage(message);
   console.log(`[*] Signature: ${signature.slice(0, 20)}...`);
 
-  // Step 4: Register atau Login tergantung status
+  // Step 4: Register atau Login
   const endpoint = registered
     ? `${BASE_URL}/client/login/v1/login`
     : `${BASE_URL}/client/login/v1/register`;
 
-  const registerRes = await axios.post(endpoint, {
-    walletAddress,
-    inviteCode: INVITE_CODE,
-    message,
-    signature,
-  }, { headers: HEADERS });
-
-  const data = registerRes.data.data;
+  const registerRes = await post(endpoint, { walletAddress, inviteCode: INVITE_CODE, message, signature });
+  const data = registerRes.data;
   console.log(`[+] Success! UID: ${data.uid}, Type: ${data.type}`);
   console.log(`[+] Auth Token: ${data.signature.slice(0, 30)}...`);
 
   return {
     walletAddress,
     uid: data.uid,
-    authToken: data.signature, // JWT buat step berikutnya
+    authToken: data.signature,
     inviteCode: data.inviteCode,
     registered,
   };
 }
 
 // ---- Main ----
-const PRIVATE_KEYS = [
-  '0xYOUR_PRIVATE_KEY_HERE',
-  // tambah wallet lain di sini
-];
+const PRIVATE_KEYS = fs.readFileSync('wallet.txt', 'utf-8')
+  .split('\n')
+  .map(l => l.trim())
+  .filter(l => l.length > 0);
 
 (async () => {
   const results = [];
@@ -85,9 +87,8 @@ const PRIVATE_KEYS = [
       results.push(result);
       console.log(`[+] Done: ${result.walletAddress}`);
     } catch (err) {
-      console.error(`[-] Error:`, err.response?.data || err.message);
+      console.error(`[-] Error:`, err.message);
     }
-    // delay antar wallet biar ga kena rate limit
     await new Promise(r => setTimeout(r, 2000));
   }
 
