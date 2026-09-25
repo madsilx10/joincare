@@ -269,8 +269,6 @@ async function bindX({ uid, authToken }, xAccount) {
     state: state,
   });
 
-  // Encode scope manual pakai %20 bukan +
-  authorizeBody.set('scope', 'tweet.read%20users.read%20follows.read%20like.read%20offline.access');
   console.log(`[*] authorize body: ${authorizeBody.toString()}`);
   const authorizeRes = await fetch('https://api.x.com/2/oauth2/authorize', {
     method: 'POST',
