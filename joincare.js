@@ -288,11 +288,10 @@ async function bindX({ uid, authToken }, xAccount) {
   });
   if (authenticityToken) authorizeBody.set('authenticity_token', authenticityToken);
 
-  const authorizeRes = await fetch('https://x.com/i/api/2/oauth2/authorize', {
+  const authorizeRes = await fetch('https://x.com/i/oauth2/authorize', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
       'Cookie': freshCookie,
       'X-Csrf-Token': freshCt0,
       'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
@@ -300,11 +299,11 @@ async function bindX({ uid, authToken }, xAccount) {
       'Referer': oauthUrl,
       'X-Twitter-Auth-Type': 'OAuth2Session',
       'X-Twitter-Active-User': 'yes',
-      ...(guestToken ? { 'X-Guest-Token': guestToken } : {}),
     },
     body: authorizeBody.toString(),
-    redirect: 'manual',
+    redirect: 'follow',
   });
+  console.log(`[*] POST final URL: ${authorizeRes.url}`);
 
   console.log(`[*] POST status: ${authorizeRes.status}`);
   const postLocation = authorizeRes.headers.get('location') || '';
