@@ -249,6 +249,9 @@ async function bindX({ uid, authToken }, xAccount) {
     const m = c.match(/^([^=]+)=([^;]*)/);
     if (m) getCookies[m[1].trim()] = m[2].trim();
   }
+  console.log(`[*] Cookie dari GET: ${Object.keys(getCookies).join(', ') || '(kosong)'}`);
+  // Log 300 char pertama HTML untuk debug
+  console.log(`[*] HTML snippet: ${getBody.slice(0, 300)}`);
   const freshCt0 = getCookies.ct0 || xAccount.ct0;
   const allCookies = { ...getCookies, auth_token: xAccount.authToken, ct0: freshCt0 };
   const freshCookie = Object.entries(allCookies).map(([k, v]) => `${k}=${v}`).join('; ');
