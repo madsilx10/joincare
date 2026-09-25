@@ -72,15 +72,51 @@ async function connectWallet(privateKey) {
   };
 }
 
+// ---- Prompt Helper ----
+function prompt(question) {
+  return new Promise(resolve => {
+    process.stdout.write(question);
+    process.stdin.once('data', d => resolve(d.toString().trim()));
+  });
+}
+
 // ---- Main ----
-const PRIVATE_KEYS = fs.readFileSync('wallet.txt', 'utf-8')
+const ALL_KEYS = fs.readFileSync('wallet.txt', 'utf-8')
   .split('\n')
   .map(l => l.trim())
   .filter(l => l.length > 0);
 
 (async () => {
-  const results = [];
+  console.log(`\n===== JOINCARE BOT =====`);
+  console.log(`Total wallet: ${ALL_KEYS.length}`);
+  console.log(`\nPilih mode:`);
+  console.log(`  1. Satu akun`);
+  console.log(`  2. Semua akun`);
+  console.log(`  3. Dari akun X sampai akhir`);
 
+  const mode = await prompt('\nPilihan (1/2/3): ');
+
+  let PRIVATE_KEYS;
+
+  if (mode === '1') {
+    const idx = await prompt(`Akun ke berapa? (1-${ALL_KEYS.length}): `);
+    PRIVATE_KEYS = [ALL_KEYS[parseInt(idx) - 1]];
+    console.log(`[*] Menjalankan akun ke-${idx}`);
+  } else if (mode === '2') {
+    PRIVATE_KEYS = ALL_KEYS;
+    console.log(`[*] Menjalankan semua akun (${ALL_KEYS.length})`);
+  } else if (mode === '3') {
+    const from = await prompt(`Mulai dari akun ke berapa? (1-${ALL_KEYS.length}): `);
+    PRIVATE_KEYS = ALL_KEYS.slice(parseInt(from) - 1);
+    console.log(`[*] Menjalankan akun ke-${from} sampai akhir (${PRIVATE_KEYS.length} akun)`);
+  } else {
+    console.log('[-] Pilihan tidak valid.');
+    process.exit(1);
+  }
+
+  process.stdin.destroy();
+
+  const results = [];
   for (const pk of PRIVATE_KEYS) {
     try {
       const result = await connectWallet(pk);
