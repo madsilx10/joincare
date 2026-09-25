@@ -234,7 +234,12 @@ async function bindX({ uid, authToken }, xAccount) {
     }
   }
 
-  // STEP 2: Kalau GET return 200 (consent page), POST authorize
+  // Parse HTML untuk ambil authenticity_token
+  const getBody = await getRes.text();
+  const authTokenMatch = getBody.match(/name="authenticity_token"[^>]*value="([^"]+)"/);
+  const authenticityToken = authTokenMatch?.[1] || '';
+  console.log(`[*] authenticity_token: ${authenticityToken ? authenticityToken.slice(0, 20) + '...' : '(tidak ada)'}`);
+
   // Kumpulkan cookie baru dari GET
   const getCookies = {};
   const rawCookies = typeof getRes.headers.getSetCookie === 'function'
@@ -259,6 +264,7 @@ async function bindX({ uid, authToken }, xAccount) {
     scope: 'tweet.read users.read follows.read like.read offline.access',
     state: state,
   });
+  if (authenticityToken) authorizeBody.set('authenticity_token', authenticityToken);
 
   const authorizeRes = await fetch('https://api.x.com/2/oauth2/authorize', {
     method: 'POST',
