@@ -62,6 +62,7 @@ async function connectWallet(privateKey) {
     : `${BASE_URL}/client/login/v1/register`;
 
   const registerRes = await post(endpoint, { walletAddress, inviteCode: INVITE_CODE, message, signature });
+  console.log(`[*] Register response:`, JSON.stringify(registerRes));
   const data = registerRes.data;
   console.log(`[+] Auth OK! UID: ${data.uid}, Type: ${data.type}`);
 
