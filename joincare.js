@@ -190,6 +190,7 @@ async function bindX({ uid, authToken }, xAccount) {
   console.log(`[*] Bind X uid=${uid}`);
 
   const urlRes = await signedPost('/client/login/v1/xLoginUrl', {}, uid, authToken);
+  console.log(`[*] xLoginUrl response: ${JSON.stringify(urlRes)}`);
   if (!urlRes?.data?.url) {
     console.log(`[-] xLoginUrl gagal`);
     return false;
