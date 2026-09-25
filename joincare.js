@@ -267,12 +267,13 @@ async function bindX({ uid, authToken }, xAccount) {
     state: state,
   });
 
+  // Encode scope manual pakai %20 bukan +
+  authorizeBody.set('scope', 'tweet.read%20users.read%20follows.read%20like.read%20offline.access');
   console.log(`[*] authorize body: ${authorizeBody.toString()}`);
   const authorizeRes = await fetch('https://api.x.com/2/oauth2/authorize', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
       'Cookie': freshCookie,
       'X-Csrf-Token': freshCt0,
       'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
@@ -285,7 +286,9 @@ async function bindX({ uid, authToken }, xAccount) {
     body: authorizeBody.toString(),
   });
 
+  console.log(`[*] Authorize status: ${authorizeRes.status}`);
   const authorizeData = await authorizeRes.json();
+  console.log(`[*] Authorize raw:`, JSON.stringify(authorizeData));
   const redirectUrl = authorizeData?.redirect_uri;
   if (!redirectUrl) {
     console.log(`[-] X authorize gagal:`, JSON.stringify(authorizeData));
