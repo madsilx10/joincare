@@ -49,7 +49,8 @@ async function connectWallet(privateKey) {
   console.log(`[*] Registered: ${registered}`);
 
   // Step 2: Get nonce
-  const nonceRes = await get(`${BASE_URL}/client/auth/v1/nonce`, { walletAddress, action: 'register' });
+  const action = registered ? 'login' : 'register';
+  const nonceRes = await get(`${BASE_URL}/client/auth/v1/nonce`, { walletAddress, action });
   const { nonce, message } = nonceRes.data;
   console.log(`[*] Nonce: ${nonce}`);
 
