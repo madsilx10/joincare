@@ -216,18 +216,18 @@ async function bindX({ uid, authToken }, xAccount) {
 
   // STEP 1: GET x.com/i/oauth2/authorize — follow redirect manual
   // Kalau user sudah pernah authorize app ini, Twitter langsung 302 ke callback dengan code
-  console.log(`[*] GET oauth X (redirect: manual)...`);
-  const getRes = await fetch(oauthUrl, { method: 'GET', headers: navHeaders, redirect: 'manual' });
+  console.log(`[*] GET oauth X...`);
+  const getRes = await fetch(oauthUrl, { method: 'GET', headers: navHeaders, redirect: 'follow' });
+  const finalUrl = getRes.url;
+  console.log(`[*] GET final URL: ${finalUrl.slice(0, 200)}`);
   console.log(`[*] GET status: ${getRes.status}`);
-  const getLocation = getRes.headers.get('location') || '';
-  console.log(`[*] GET location: ${getLocation.slice(0, 200)}`);
 
-  // Kalau langsung redirect ke callback
-  if (getLocation.includes('joincarelabs.com/callback')) {
-    const cbUrl = new URL(getLocation);
+  // Kalau follow redirect mendarat di callback joincare
+  if (finalUrl.includes('joincarelabs.com/callback')) {
+    const cbUrl = new URL(finalUrl);
     const code = cbUrl.searchParams.get('code');
     if (code) {
-      console.log(`[+] Code dapat dari GET redirect langsung`);
+      console.log(`[+] Code dapat dari GET redirect`);
       const loginRes = await signedPost('/client/auth/v1/xBinding', { code, state }, uid, authToken);
       console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
       return !!loginRes?.data;
