@@ -250,8 +250,12 @@ async function bindX({ uid, authToken }, xAccount) {
     if (m) getCookies[m[1].trim()] = m[2].trim();
   }
   console.log(`[*] Cookie dari GET: ${Object.keys(getCookies).join(', ') || '(kosong)'}`);
-  // Log 300 char pertama HTML untuk debug
-  console.log(`[*] HTML snippet: ${getBody.slice(0, 300)}`);
+  // Cari embedded JSON state di script tag
+  const jsonStateMatch = getBody.match(/\{"oauth_token[^}]+\}/) || getBody.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});/) || getBody.match(/"authCode":"([^"]+)"/) || getBody.match(/\"code\":\"([^\"]+)\"/);
+  console.log(`[*] Embedded state: ${jsonStateMatch ? jsonStateMatch[0].slice(0, 200) : '(tidak ada)'}`);
+  console.log(`[*] HTML length: ${getBody.length}`);
+  // Log bagian tengah HTML (sering ada data di sana)
+  console.log(`[*] HTML mid: ${getBody.slice(1000, 1500)}`);
   const freshCt0 = getCookies.ct0 || xAccount.ct0;
   const allCookies = { ...getCookies, auth_token: xAccount.authToken, ct0: freshCt0 };
   const freshCookie = Object.entries(allCookies).map(([k, v]) => `${k}=${v}`).join('; ');
