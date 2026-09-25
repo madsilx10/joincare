@@ -4,7 +4,7 @@ const fs = require('fs');
 const INVITE_CODE = 'RXC9Q0';
 const BASE_URL = 'https://joincarelabs.com';
 const BSC_RPC = 'https://bsc-dataseed.binance.org/';
-const CHECKIN_CONTRACT = '0xE029161be55922edf3ec9d222142edf057d196ee';
+const CHECKIN_CONTRACT = '0xe029161bE55922edF3eC9d222142edF057d196Ee';
 const CHECKIN_DATA = '0x183ff085'; // checkIn() no params
 
 const HEADERS = {
