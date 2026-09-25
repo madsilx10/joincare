@@ -229,15 +229,31 @@ async function bindX({ uid, authToken }, xAccount) {
   if (authTokenMatch) console.log(`[*] authenticity_token: ${authTokenMatch[1]}`);
   if (redirectMatch) console.log(`[*] redirect_after_login: ${redirectMatch[1]}`);
 
-  // Ambil ct0 terbaru dari cookie response GET
-  let freshCt0 = xAccount.ct0;
-  const rawSetCookie = getRes.headers.get('set-cookie') || '';
-  const ct0Match = rawSetCookie.match(/ct0=([^;]+)/);
-  if (ct0Match) {
-    freshCt0 = ct0Match[1];
-    console.log(`[*] ct0 diperbarui dari response GET`);
+  // Kumpulkan semua Set-Cookie dari GET response
+  const getCookies = {};
+  // node fetch headers.raw() tidak ada, pakai getSetCookie() kalau Node 18+
+  let rawCookies = [];
+  if (typeof getRes.headers.getSetCookie === 'function') {
+    rawCookies = getRes.headers.getSetCookie();
+  } else {
+    const raw = getRes.headers.get('set-cookie');
+    if (raw) rawCookies = [raw];
   }
-  const freshCookie = `auth_token=${xAccount.authToken}; ct0=${freshCt0}`;
+  console.log(`[*] Set-Cookie dari GET (${rawCookies.length}): ${rawCookies.join(' | ').slice(0, 300)}`);
+  for (const c of rawCookies) {
+    const m = c.match(/^([^=]+)=([^;]*)/);
+    if (m) getCookies[m[1].trim()] = m[2].trim();
+  }
+
+  // Merge: cookie dari GET override default, tapi auth_token & ct0 dari akun tetap ada
+  const mergedCookieObj = {
+    ...getCookies,
+    auth_token: xAccount.authToken,
+    ct0: getCookies.ct0 || xAccount.ct0,
+  };
+  const freshCt0 = mergedCookieObj.ct0;
+  const freshCookie = Object.entries(mergedCookieObj).map(([k, v]) => `${k}=${v}`).join('; ');
+  console.log(`[*] ct0 dipakai: ${freshCt0.slice(0, 10)}...`);
 
   // STEP 2: POST authorize
   const authorizeBody = new URLSearchParams({
