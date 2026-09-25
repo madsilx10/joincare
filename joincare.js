@@ -288,7 +288,7 @@ async function bindX({ uid, authToken }, xAccount) {
   });
   if (authenticityToken) authorizeBody.set('authenticity_token', authenticityToken);
 
-  const authorizeRes = await fetch('https://api.x.com/2/oauth2/authorize', {
+  const authorizeRes = await fetch('https://x.com/i/oauth2/authorize', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
