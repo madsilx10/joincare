@@ -171,6 +171,74 @@ async function bindTelegram({ uid, authToken }, sessionString) {
   return true;
 }
 
+
+// ---- X (Twitter) Bind ----
+async function bindX({ uid, authToken }, xAccount) {
+  console.log(`[*] Bind X uid=${uid}`);
+
+  // Step 1: GET xLoginUrl → dapet OAuth URL + state + code_challenge
+  const urlRes = await signedGet('/client/login/v1/xLoginUrl', uid, authToken);
+  if (!urlRes?.data?.url) {
+    console.log(`[-] xLoginUrl gagal`);
+    return false;
+  }
+
+  const oauthUrl = urlRes.data.url;
+  const urlObj = new URL(oauthUrl);
+  const state = urlObj.searchParams.get('state');
+  const codeChallenge = urlObj.searchParams.get('code_challenge');
+  const clientId = urlObj.searchParams.get('client_id');
+  const redirectUri = urlObj.searchParams.get('redirect_uri');
+
+  // Step 2: POST ke x.com/2/oauth2/authorize dengan cookie X
+  const xCookie = `auth_token=${xAccount.authToken}; ct0=${xAccount.ct0}`;
+  const authorizeBody = new URLSearchParams({
+    approval: 'true',
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'tweet.read users.read follows.read like.read offline.access',
+    state: state,
+  });
+
+  const authorizeRes = await fetch('https://api.x.com/2/oauth2/authorize', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
+      'Cookie': xCookie,
+      'X-Csrf-Token': xAccount.ct0,
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      'Origin': 'https://x.com',
+      'Referer': 'https://x.com/',
+    },
+    body: authorizeBody.toString(),
+  });
+
+  const authorizeData = await authorizeRes.json();
+  const redirectUrl = authorizeData?.redirect_uri;
+  if (!redirectUrl) {
+    console.log(`[-] X authorize gagal:`, JSON.stringify(authorizeData));
+    return false;
+  }
+
+  // Step 3: Extract code dari redirect URL
+  const redirectObj = new URL(redirectUrl);
+  const code = redirectObj.searchParams.get('code');
+  if (!code) {
+    console.log(`[-] Tidak dapet code dari redirect`);
+    return false;
+  }
+
+  // Step 4: POST xLoginUrl ke joincare dengan code
+  const loginRes = await signedPost('/client/login/v1/xLoginUrl', { code, state }, uid, authToken);
+  console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
+
+  return !!loginRes?.data;
+}
+
 // ---- Prompt ----
 function prompt(question) {
   return new Promise(resolve => {
@@ -187,11 +255,27 @@ const ALL_SESSIONS = fs.existsSync('sessions.txt')
   ? fs.readFileSync('sessions.txt', 'utf-8').split('\n').map(l => l.trim()).filter(Boolean)
   : [];
 
+// akun.txt: 2 baris per akun (authToken, ct0)
+const ALL_X_ACCOUNTS = (() => {
+  if (!fs.existsSync('akun.txt')) return [];
+  const lines = fs.readFileSync('akun.txt', 'utf-8').split('\n').map(l => l.trim()).filter(Boolean);
+  const accounts = [];
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    accounts.push({ authToken: lines[i], ct0: lines[i + 1] });
+  }
+  return accounts;
+})();
+
 (async () => {
   console.log(`\n===== JOINCARE BOT =====`);
-  console.log(`Wallet: ${ALL_KEYS.length} | TG Session: ${ALL_SESSIONS.length}`);
-  console.log(`\n  1. Satu akun\n  2. Semua akun\n  3. Dari akun X sampai akhir`);
+  console.log(`Wallet: ${ALL_KEYS.length} | TG: ${ALL_SESSIONS.length} | X: ${ALL_X_ACCOUNTS.length}`);
+  console.log(`\n  1. Semua task (skip yg sudah selesai)`);
+  console.log(`  2. Daily checkin aja`);
+  const task = await prompt('\nTask (1/2): ');
 
+  console.log(`\n  1. Satu akun`);
+  console.log(`  2. Semua akun`);
+  console.log(`  3. Dari akun X sampai akhir`);
   const mode = await prompt('\nMode (1/2/3): ');
   let indices = [];
   if (mode === '1') {
@@ -205,9 +289,6 @@ const ALL_SESSIONS = fs.existsSync('sessions.txt')
   } else {
     console.log('[-] Pilihan tidak valid.'); process.exit(1);
   }
-
-  console.log(`\n  1. CheckIn daily\n  2. Bind Telegram\n  3. CheckIn + Bind Telegram`);
-  const task = await prompt('\nTask (1/2/3): ');
   process.stdin.destroy();
 
   for (const i of indices) {
@@ -217,10 +298,18 @@ const ALL_SESSIONS = fs.existsSync('sessions.txt')
 
     try {
       const account = await connectWallet(pk);
-      if (task === '1' || task === '3') await checkIn(account);
-      if (task === '2' || task === '3') {
-        if (!session) console.log(`[-] Session TG ${i + 1} tidak ada, skip`);
+
+      // Daily checkin (ada skip internal kalau udah)
+      await checkIn(account);
+
+      // Task lain hanya kalau mode "semua"
+      if (task === '1') {
+        if (!session) console.log(`[-] Session TG ${i + 1} tidak ada, skip bind TG`);
         else await bindTelegram(account, session);
+
+        const xAccount = ALL_X_ACCOUNTS[i];
+        if (!xAccount) console.log(`[-] Akun X ${i + 1} tidak ada, skip bind X`);
+        else await bindX(account, xAccount);
       }
     } catch (err) {
       console.error(`[-] Error akun ${i + 1}:`, err.message);
