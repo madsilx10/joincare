@@ -203,6 +203,26 @@ async function bindX({ uid, authToken }, xAccount) {
   const redirectUri = urlObj.searchParams.get('redirect_uri');
 
   const xCookie = `auth_token=${xAccount.authToken}; ct0=${xAccount.ct0}`;
+
+  // STEP 1: GET consent page dulu supaya Twitter tau session valid
+  console.log(`[*] GET consent page X...`);
+  const getRes = await fetch(oauthUrl, {
+    method: 'GET',
+    headers: {
+      'Cookie': xCookie,
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Referer': 'https://joincarelabs.com/',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'cross-site',
+    },
+    redirect: 'manual',
+  });
+  console.log(`[*] GET consent status: ${getRes.status}`);
+
+  // STEP 2: POST authorize
   const authorizeBody = new URLSearchParams({
     approval: 'true',
     code_challenge: codeChallenge,
@@ -223,7 +243,10 @@ async function bindX({ uid, authToken }, xAccount) {
       'X-Csrf-Token': xAccount.ct0,
       'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
       'Origin': 'https://x.com',
-      'Referer': 'https://x.com/',
+      'Referer': oauthUrl,
+      'X-Twitter-Auth-Type': 'OAuth2Session',
+      'X-Twitter-Active-User': 'yes',
+      'X-Client-Transaction-Id': crypto.randomUUID(),
     },
     body: authorizeBody.toString(),
   });
