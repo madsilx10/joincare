@@ -20,6 +20,31 @@ const HEADERS = {
   'Origin': BASE_URL,
 };
 
+// ---- Signature Generator ----
+// Reverse engineered dari fungsi Zz() di JS bundle joincarelabs.com
+// message = body + path + requestId + token.slice(-8) + uid + time
+// key = authToken (full)
+async function generateSignature(authToken, method, path, body, requestId, uid, time) {
+  let message = '';
+  if (method !== 'GET' && body && body !== '""') message += body;
+  message += path;
+  message += requestId;
+  if (authToken) message += authToken.slice(-8);
+  message += String(uid);
+  message += String(time);
+
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(authToken),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function get(url, params = {}) {
   const u = new URL(url);
   Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
@@ -95,47 +120,52 @@ async function checkIn({ wallet, walletAddress, uid, authToken }) {
   console.log(`[*] Tx confirmed!`);
 
   // Submit txHash ke API
-  const rawRes = await fetch(
-    `${BASE_URL}/client/taskhall/v1/checkIn`,
-    {
-      method: 'POST',
-      headers: {
-        ...HEADERS,
-        'Jc-Person': String(uid),
-        'Jc-Sign': authToken,
-        'Jc-Request-Id': crypto.randomUUID(),
-        'Jc-Time': String(Math.floor(Date.now() / 1000)),
-        'Jc-Signature': '',
-      },
-      body: JSON.stringify({ txHash: tx.hash }),
-    }
-  );
+  const checkInPath = '/client/taskhall/v1/checkIn';
+  const checkInBody = JSON.stringify({ txHash: tx.hash });
+  const checkInReqId = crypto.randomUUID();
+  const checkInTime = String(Math.floor(Date.now() / 1000));
+  const checkInSig = await generateSignature(authToken, 'POST', checkInPath, checkInBody, checkInReqId, uid, checkInTime);
+
+  const rawRes = await fetch(`${BASE_URL}${checkInPath}`, {
+    method: 'POST',
+    headers: {
+      ...HEADERS,
+      'Jc-Person': String(uid),
+      'Jc-Sign': authToken,
+      'Jc-Request-Id': checkInReqId,
+      'Jc-Time': checkInTime,
+      'Jc-Signature': checkInSig,
+    },
+    body: checkInBody,
+  });
+  console.log(`[*] CheckIn status:`, rawRes.status);
   const text = await rawRes.text();
   console.log(`[*] CheckIn raw response:`, text || '(empty)');
 
-  // Reconcile — trigger confirm di dashboard (body kosong)
-  const jcTime = String(Math.floor(Date.now() / 1000));
-  const reconcileRes = await fetch(
-    `${BASE_URL}/client/taskhall/v1/checkIn/reconcile`,
-    {
-      method: 'POST',
-      headers: {
-        ...HEADERS,
-        'Content-Length': '0',
-        'Jc-Person': String(uid),
-        'Jc-Sign': authToken,
-        'Jc-Request-Id': crypto.randomUUID(),
-        'Jc-Time': jcTime,
-        'Jc-Signature': '',
-      },
-      body: '',
-    }
-  );
+  // Reconcile
+  const reconcilePath = '/client/taskhall/v1/checkIn/reconcile';
+  const reconcileBody = JSON.stringify({});
+  const reconcileReqId = crypto.randomUUID();
+  const reconcileTime = String(Math.floor(Date.now() / 1000));
+  const reconcileSig = await generateSignature(authToken, 'POST', reconcilePath, reconcileBody, reconcileReqId, uid, reconcileTime);
+
+  const reconcileRes = await fetch(`${BASE_URL}${reconcilePath}`, {
+    method: 'POST',
+    headers: {
+      ...HEADERS,
+      'Jc-Person': String(uid),
+      'Jc-Sign': authToken,
+      'Jc-Request-Id': reconcileReqId,
+      'Jc-Time': reconcileTime,
+      'Jc-Signature': reconcileSig,
+    },
+    body: reconcileBody,
+  });
+  console.log(`[*] Reconcile status:`, reconcileRes.status);
   const reconcileText = await reconcileRes.text();
   console.log(`[*] Reconcile response:`, reconcileText || '(empty)');
 
   const checkInRes = text ? JSON.parse(text) : {};
-
   console.log(`[+] CheckIn result:`, checkInRes.data);
   return checkInRes.data;
 }
