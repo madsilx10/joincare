@@ -222,6 +222,16 @@ async function bindX({ uid, authToken }, xAccount) {
   });
   console.log(`[*] GET consent status: ${getRes.status}`);
 
+  // Ambil ct0 terbaru dari cookie response GET
+  let freshCt0 = xAccount.ct0;
+  const rawSetCookie = getRes.headers.get('set-cookie') || '';
+  const ct0Match = rawSetCookie.match(/ct0=([^;]+)/);
+  if (ct0Match) {
+    freshCt0 = ct0Match[1];
+    console.log(`[*] ct0 diperbarui dari response GET`);
+  }
+  const freshCookie = `auth_token=${xAccount.authToken}; ct0=${freshCt0}`;
+
   // STEP 2: POST authorize
   const authorizeBody = new URLSearchParams({
     approval: 'true',
@@ -234,13 +244,14 @@ async function bindX({ uid, authToken }, xAccount) {
     state: state,
   });
 
+  console.log(`[*] authorize body: ${authorizeBody.toString()}`);
   const authorizeRes = await fetch('https://api.x.com/2/oauth2/authorize', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Authorization': `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
-      'Cookie': xCookie,
-      'X-Csrf-Token': xAccount.ct0,
+      'Cookie': freshCookie,
+      'X-Csrf-Token': freshCt0,
       'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
       'Origin': 'https://x.com',
       'Referer': oauthUrl,
