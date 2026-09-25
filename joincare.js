@@ -201,63 +201,54 @@ async function bindX({ uid, authToken }, xAccount) {
   const codeChallenge = urlObj.searchParams.get('code_challenge');
   const clientId = urlObj.searchParams.get('client_id');
   const redirectUri = urlObj.searchParams.get('redirect_uri');
-
   const xCookie = `auth_token=${xAccount.authToken}; ct0=${xAccount.ct0}`;
 
-  // STEP 1: GET consent page dulu supaya Twitter tau session valid
-  console.log(`[*] GET consent page X...`);
-  const getRes = await fetch(oauthUrl, {
-    method: 'GET',
-    headers: {
-      'Cookie': xCookie,
-      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Referer': 'https://joincarelabs.com/',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'cross-site',
-    },
-    redirect: 'manual',
-  });
-  console.log(`[*] GET consent status: ${getRes.status}`);
-  const getBody = await getRes.text();
-  // Cek apakah ada authenticity_token atau parameter tersembunyi
-  const authTokenMatch = getBody.match(/authenticity_token["\s]+value="([^"]+)"/);
-  const redirectMatch = getBody.match(/redirect_after_login["\s]+value="([^"]+)"/);
-  console.log(`[*] GET body snippet: ${getBody.slice(0, 500)}`);
-  if (authTokenMatch) console.log(`[*] authenticity_token: ${authTokenMatch[1]}`);
-  if (redirectMatch) console.log(`[*] redirect_after_login: ${redirectMatch[1]}`);
+  const navHeaders = {
+    'Cookie': xCookie,
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Referer': 'https://joincarelabs.com/',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'cross-site',
+  };
 
-  // Kumpulkan semua Set-Cookie dari GET response
-  const getCookies = {};
-  // node fetch headers.raw() tidak ada, pakai getSetCookie() kalau Node 18+
-  let rawCookies = [];
-  if (typeof getRes.headers.getSetCookie === 'function') {
-    rawCookies = getRes.headers.getSetCookie();
-  } else {
-    const raw = getRes.headers.get('set-cookie');
-    if (raw) rawCookies = [raw];
+  // STEP 1: GET x.com/i/oauth2/authorize — follow redirect manual
+  // Kalau user sudah pernah authorize app ini, Twitter langsung 302 ke callback dengan code
+  console.log(`[*] GET oauth X (redirect: manual)...`);
+  const getRes = await fetch(oauthUrl, { method: 'GET', headers: navHeaders, redirect: 'manual' });
+  console.log(`[*] GET status: ${getRes.status}`);
+  const getLocation = getRes.headers.get('location') || '';
+  console.log(`[*] GET location: ${getLocation.slice(0, 200)}`);
+
+  // Kalau langsung redirect ke callback
+  if (getLocation.includes('joincarelabs.com/callback')) {
+    const cbUrl = new URL(getLocation);
+    const code = cbUrl.searchParams.get('code');
+    if (code) {
+      console.log(`[+] Code dapat dari GET redirect langsung`);
+      const loginRes = await signedPost('/client/auth/v1/xBinding', { code, state }, uid, authToken);
+      console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
+      return !!loginRes?.data;
+    }
   }
-  console.log(`[*] Set-Cookie dari GET (${rawCookies.length}): ${rawCookies.join(' | ').slice(0, 300)}`);
+
+  // STEP 2: Kalau GET return 200 (consent page), POST authorize
+  // Kumpulkan cookie baru dari GET
+  const getCookies = {};
+  const rawCookies = typeof getRes.headers.getSetCookie === 'function'
+    ? getRes.headers.getSetCookie()
+    : (getRes.headers.get('set-cookie') ? [getRes.headers.get('set-cookie')] : []);
   for (const c of rawCookies) {
     const m = c.match(/^([^=]+)=([^;]*)/);
     if (m) getCookies[m[1].trim()] = m[2].trim();
   }
+  const freshCt0 = getCookies.ct0 || xAccount.ct0;
+  const allCookies = { ...getCookies, auth_token: xAccount.authToken, ct0: freshCt0 };
+  const freshCookie = Object.entries(allCookies).map(([k, v]) => `${k}=${v}`).join('; ');
 
-  // Merge: cookie dari GET override default, tapi auth_token & ct0 dari akun tetap ada
-  const mergedCookieObj = {
-    ...getCookies,
-    auth_token: xAccount.authToken,
-    ct0: getCookies.ct0 || xAccount.ct0,
-  };
-  const freshCt0 = mergedCookieObj.ct0;
-  const freshCookie = Object.entries(mergedCookieObj).map(([k, v]) => `${k}=${v}`).join('; ');
-  console.log(`[*] ct0 dari akun : ${xAccount.ct0.slice(0, 20)}...`);
-  console.log(`[*] ct0 dari GET  : ${(getCookies.ct0 || '(tidak ada)').slice(0, 20)}`);
-  console.log(`[*] ct0 final     : ${freshCt0.slice(0, 20)}...`);
-
-  // STEP 2: POST authorize
+  console.log(`[*] POST authorize...`);
   const authorizeBody = new URLSearchParams({
     approval: 'true',
     code_challenge: codeChallenge,
@@ -269,7 +260,6 @@ async function bindX({ uid, authToken }, xAccount) {
     state: state,
   });
 
-  console.log(`[*] authorize body: ${authorizeBody.toString()}`);
   const authorizeRes = await fetch('https://api.x.com/2/oauth2/authorize', {
     method: 'POST',
     headers: {
@@ -282,34 +272,47 @@ async function bindX({ uid, authToken }, xAccount) {
       'Referer': oauthUrl,
       'X-Twitter-Auth-Type': 'OAuth2Session',
       'X-Twitter-Active-User': 'yes',
-      'X-Client-Transaction-Id': crypto.randomUUID(),
     },
     body: authorizeBody.toString(),
+    redirect: 'manual',
   });
 
-  console.log(`[*] Authorize status: ${authorizeRes.status}`);
-  const authorizeText = await authorizeRes.text();
-  console.log(`[*] Authorize raw text:`, authorizeText.slice(0, 500));
-  let authorizeData = {};
-  try { authorizeData = authorizeText ? JSON.parse(authorizeText) : {}; } catch(e) {}
-  console.log(`[*] Authorize parsed:`, JSON.stringify(authorizeData));
-  const redirectUrl = authorizeData?.redirect_uri;
-  if (!redirectUrl) {
-    console.log(`[-] X authorize gagal:`, JSON.stringify(authorizeData));
-    return false;
+  console.log(`[*] POST status: ${authorizeRes.status}`);
+  const postLocation = authorizeRes.headers.get('location') || '';
+  console.log(`[*] POST location: ${postLocation.slice(0, 200)}`);
+
+  // Cek redirect dari POST
+  if (postLocation.includes('joincarelabs.com/callback')) {
+    const cbUrl = new URL(postLocation);
+    const code = cbUrl.searchParams.get('code');
+    if (code) {
+      console.log(`[+] Code dapat dari POST redirect`);
+      const loginRes = await signedPost('/client/auth/v1/xBinding', { code, state }, uid, authToken);
+      console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
+      return !!loginRes?.data;
+    }
   }
 
-  const redirectObj = new URL(redirectUrl);
-  const code = redirectObj.searchParams.get('code');
-  if (!code) {
-    console.log(`[-] Tidak dapet code dari redirect`);
-    return false;
+  // Cek response body JSON (beberapa flow return redirect_uri di body)
+  const postText = await authorizeRes.text();
+  console.log(`[*] POST body: ${postText.slice(0, 300)}`);
+  let postData = {};
+  try { postData = postText ? JSON.parse(postText) : {}; } catch(e) {}
+
+  const redirectUrl = postData?.redirect_uri;
+  if (redirectUrl) {
+    const cbUrl = new URL(redirectUrl);
+    const code = cbUrl.searchParams.get('code');
+    if (code) {
+      console.log(`[+] Code dapat dari POST body`);
+      const loginRes = await signedPost('/client/auth/v1/xBinding', { code, state }, uid, authToken);
+      console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
+      return !!loginRes?.data;
+    }
   }
 
-  const loginRes = await signedPost('/client/auth/v1/xBinding', { code, state }, uid, authToken);
-  console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
-
-  return !!loginRes?.data;
+  console.log(`[-] X authorize gagal: ${postText.slice(0, 200)}`);
+  return false;
 }
 
 // ---- Prompt ----
