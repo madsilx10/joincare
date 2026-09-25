@@ -95,17 +95,46 @@ async function checkIn({ wallet, walletAddress, uid, authToken }) {
   console.log(`[*] Tx confirmed!`);
 
   // Submit txHash ke API
-  const checkInRes = await post(
+  const rawRes = await fetch(
     `${BASE_URL}/client/taskhall/v1/checkIn`,
-    { txHash: tx.hash },
     {
-      'Jc-Person': String(uid),
-      'Jc-Sign': authToken,
-      'Jc-Request-Id': crypto.randomUUID(),
-      'Jc-Time': String(Math.floor(Date.now() / 1000)),
-      'Jc-Signature': '', // kosong dulu, lihat apakah perlu
+      method: 'POST',
+      headers: {
+        ...HEADERS,
+        'Jc-Person': String(uid),
+        'Jc-Sign': authToken,
+        'Jc-Request-Id': crypto.randomUUID(),
+        'Jc-Time': String(Math.floor(Date.now() / 1000)),
+        'Jc-Signature': '',
+      },
+      body: JSON.stringify({ txHash: tx.hash }),
     }
   );
+  const text = await rawRes.text();
+  console.log(`[*] CheckIn raw response:`, text || '(empty)');
+
+  // Reconcile — trigger confirm di dashboard (body kosong)
+  const jcTime = String(Math.floor(Date.now() / 1000));
+  const reconcileRes = await fetch(
+    `${BASE_URL}/client/taskhall/v1/checkIn/reconcile`,
+    {
+      method: 'POST',
+      headers: {
+        ...HEADERS,
+        'Content-Length': '0',
+        'Jc-Person': String(uid),
+        'Jc-Sign': authToken,
+        'Jc-Request-Id': crypto.randomUUID(),
+        'Jc-Time': jcTime,
+        'Jc-Signature': '',
+      },
+      body: '',
+    }
+  );
+  const reconcileText = await reconcileRes.text();
+  console.log(`[*] Reconcile response:`, reconcileText || '(empty)');
+
+  const checkInRes = text ? JSON.parse(text) : {};
 
   console.log(`[+] CheckIn result:`, checkInRes.data);
   return checkInRes.data;
