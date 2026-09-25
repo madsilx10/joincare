@@ -3,6 +3,9 @@ const fs = require('fs');
 
 const INVITE_CODE = 'RXC9Q0';
 const BASE_URL = 'https://joincarelabs.com';
+const BSC_RPC = 'https://bsc-dataseed.binance.org/';
+const CHECKIN_CONTRACT = '0xE029161be55922edf3ec9d222142edf057d196ee';
+const CHECKIN_DATA = '0x183ff085'; // checkIn() no params
 
 const HEADERS = {
   'Content-Type': 'application/json',
@@ -24,15 +27,16 @@ async function get(url, params = {}) {
   return res.json();
 }
 
-async function post(url, body) {
+async function post(url, body, extraHeaders = {}) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: HEADERS,
+    headers: { ...HEADERS, ...extraHeaders },
     body: JSON.stringify(body),
   });
   return res.json();
 }
 
+// ---- Auth Flow ----
 async function connectWallet(privateKey) {
   const wallet = new ethers.Wallet(privateKey);
   const walletAddress = wallet.address;
@@ -51,7 +55,6 @@ async function connectWallet(privateKey) {
 
   // Step 3: Sign message (EIP-191)
   const signature = await wallet.signMessage(message);
-  console.log(`[*] Signature: ${signature.slice(0, 20)}...`);
 
   // Step 4: Register atau Login
   const endpoint = registered
@@ -60,16 +63,50 @@ async function connectWallet(privateKey) {
 
   const registerRes = await post(endpoint, { walletAddress, inviteCode: INVITE_CODE, message, signature });
   const data = registerRes.data;
-  console.log(`[+] Success! UID: ${data.uid}, Type: ${data.type}`);
-  console.log(`[+] Auth Token: ${data.signature.slice(0, 30)}...`);
+  console.log(`[+] Auth OK! UID: ${data.uid}, Type: ${data.type}`);
 
   return {
+    wallet,
     walletAddress,
     uid: data.uid,
     authToken: data.signature,
-    inviteCode: data.inviteCode,
-    registered,
   };
+}
+
+// ---- CheckIn Flow ----
+async function checkIn({ wallet, walletAddress, uid, authToken }) {
+  console.log(`[*] CheckIn: ${walletAddress}`);
+
+  const provider = new ethers.JsonRpcProvider(BSC_RPC);
+  const signer = wallet.connect(provider);
+
+  // Kirim tx onchain checkIn()
+  const tx = await signer.sendTransaction({
+    to: CHECKIN_CONTRACT,
+    data: CHECKIN_DATA,
+    gasLimit: 60000n,
+    gasPrice: ethers.parseUnits('0.05', 'gwei'),
+  });
+
+  console.log(`[*] Tx sent: ${tx.hash}`);
+  await tx.wait();
+  console.log(`[*] Tx confirmed!`);
+
+  // Submit txHash ke API
+  const checkInRes = await post(
+    `${BASE_URL}/client/taskhall/v1/checkIn`,
+    { txHash: tx.hash },
+    {
+      'Jc-Person': String(uid),
+      'Jc-Sign': authToken,
+      'Jc-Request-Id': crypto.randomUUID(),
+      'Jc-Time': String(Math.floor(Date.now() / 1000)),
+      'Jc-Signature': '', // kosong dulu, lihat apakah perlu
+    }
+  );
+
+  console.log(`[+] CheckIn result:`, checkInRes.data);
+  return checkInRes.data;
 }
 
 // ---- Prompt Helper ----
@@ -97,18 +134,17 @@ const ALL_KEYS = fs.readFileSync('wallet.txt', 'utf-8')
   const mode = await prompt('\nPilihan (1/2/3): ');
 
   let PRIVATE_KEYS;
-
   if (mode === '1') {
     const idx = await prompt(`Akun ke berapa? (1-${ALL_KEYS.length}): `);
     PRIVATE_KEYS = [ALL_KEYS[parseInt(idx) - 1]];
-    console.log(`[*] Menjalankan akun ke-${idx}`);
+    console.log(`[*] Akun ke-${idx}`);
   } else if (mode === '2') {
     PRIVATE_KEYS = ALL_KEYS;
-    console.log(`[*] Menjalankan semua akun (${ALL_KEYS.length})`);
+    console.log(`[*] Semua akun (${ALL_KEYS.length})`);
   } else if (mode === '3') {
     const from = await prompt(`Mulai dari akun ke berapa? (1-${ALL_KEYS.length}): `);
     PRIVATE_KEYS = ALL_KEYS.slice(parseInt(from) - 1);
-    console.log(`[*] Menjalankan akun ke-${from} sampai akhir (${PRIVATE_KEYS.length} akun)`);
+    console.log(`[*] Akun ke-${from} sampai akhir (${PRIVATE_KEYS.length} akun)`);
   } else {
     console.log('[-] Pilihan tidak valid.');
     process.exit(1);
@@ -116,20 +152,15 @@ const ALL_KEYS = fs.readFileSync('wallet.txt', 'utf-8')
 
   process.stdin.destroy();
 
-  const results = [];
   for (const pk of PRIVATE_KEYS) {
     try {
-      const result = await connectWallet(pk);
-      results.push(result);
-      console.log(`[+] Done: ${result.walletAddress}`);
+      const account = await connectWallet(pk);
+      await checkIn(account);
     } catch (err) {
       console.error(`[-] Error:`, err.message);
     }
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000));
   }
 
-  console.log('\n===== SUMMARY =====');
-  results.forEach(r => {
-    console.log(`${r.walletAddress} | UID: ${r.uid} | Token: ${r.authToken.slice(0, 40)}...`);
-  });
+  console.log('\n[+] Semua selesai!');
 })();
