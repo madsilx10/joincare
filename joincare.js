@@ -255,12 +255,7 @@ async function bindX({ uid, authToken }, xAccount) {
   const jsonStateMatch = getBody.match(/\{"oauth_token[^}]+\}/) || getBody.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});/) || getBody.match(/"authCode":"([^"]+)"/) || getBody.match(/\"code\":\"([^\"]+)\"/);
   console.log(`[*] Embedded state: ${jsonStateMatch ? jsonStateMatch[0].slice(0, 200) : '(tidak ada)'}`);
   console.log(`[*] HTML length: ${getBody.length}`);
-  // Log bagian tengah HTML (sering ada data di sana)
   console.log(`[*] HTML mid: ${getBody.slice(1000, 1500)}`);
-  const freshCt0 = getCookies.ct0 || xAccount.ct0;
-  const allCookies = { ...getCookies, auth_token: xAccount.authToken, ct0: freshCt0 };
-  if (guestToken) allCookies['gt'] = guestToken;
-  const freshCookie = Object.entries(allCookies).map(([k, v]) => `${k}=${v}`).join('; ');
 
   // Fetch guest token Twitter
   console.log(`[*] Fetch guest token...`);
@@ -274,6 +269,11 @@ async function bindX({ uid, authToken }, xAccount) {
   const gtData = await gtRes.json();
   const guestToken = gtData?.guest_token || '';
   console.log(`[*] Guest token: ${guestToken ? guestToken.slice(0, 15) + '...' : '(gagal)'}`);
+
+  const freshCt0 = getCookies.ct0 || xAccount.ct0;
+  const allCookies = { ...getCookies, auth_token: xAccount.authToken, ct0: freshCt0 };
+  if (guestToken) allCookies['gt'] = guestToken;
+  const freshCookie = Object.entries(allCookies).map(([k, v]) => `${k}=${v}`).join('; ');;
 
   console.log(`[*] POST authorize...`);
   const authorizeBody = new URLSearchParams({
