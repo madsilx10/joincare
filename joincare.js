@@ -7,8 +7,7 @@ const INVITE_CODE = 'RXC9Q0';
 const BASE_URL = 'https://joincarelabs.com';
 const BSC_RPC = 'https://bsc-dataseed.binance.org/';
 const CHECKIN_CONTRACT = ethers.getAddress('0xe029161be55922edf3ec9d222142edf057d196ee');
-const CHECKIN_DATA = '0x183ff085'; // checkIn() no params
-
+const CHECKIN_DATA = '0x183ff085';
 const TG_BIND_SCRIPT = path.join(__dirname, 'tg_bind.py');
 
 const HEADERS = {
@@ -24,7 +23,6 @@ const HEADERS = {
   'Origin': BASE_URL,
 };
 
-// ---- Signature Generator ----
 async function generateSignature(authToken, method, urlPath, body, requestId, uid, time) {
   let message = '';
   if (method !== 'GET' && body && body !== '""') message += body;
@@ -44,23 +42,14 @@ async function generateSignature(authToken, method, urlPath, body, requestId, ui
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// ---- Signed Request Helpers ----
 async function signedPost(urlPath, body, uid, authToken) {
   const requestId = crypto.randomUUID();
   const jcTime = String(Math.floor(Date.now() / 1000));
   const bodyStr = JSON.stringify(body);
   const sig = await generateSignature(authToken, 'POST', urlPath, bodyStr, requestId, uid, jcTime);
-
   const res = await fetch(`${BASE_URL}${urlPath}`, {
     method: 'POST',
-    headers: {
-      ...HEADERS,
-      'Jc-Person': String(uid),
-      'Jc-Sign': authToken,
-      'Jc-Request-Id': requestId,
-      'Jc-Time': jcTime,
-      'Jc-Signature': sig,
-    },
+    headers: { ...HEADERS, 'Jc-Person': String(uid), 'Jc-Sign': authToken, 'Jc-Request-Id': requestId, 'Jc-Time': jcTime, 'Jc-Signature': sig },
     body: bodyStr,
   });
   const text = await res.text();
@@ -71,17 +60,9 @@ async function signedGet(urlPath, uid, authToken) {
   const requestId = crypto.randomUUID();
   const jcTime = String(Math.floor(Date.now() / 1000));
   const sig = await generateSignature(authToken, 'GET', urlPath, '', requestId, uid, jcTime);
-
   const res = await fetch(`${BASE_URL}${urlPath}`, {
     method: 'GET',
-    headers: {
-      ...HEADERS,
-      'Jc-Person': String(uid),
-      'Jc-Sign': authToken,
-      'Jc-Request-Id': requestId,
-      'Jc-Time': jcTime,
-      'Jc-Signature': sig,
-    },
+    headers: { ...HEADERS, 'Jc-Person': String(uid), 'Jc-Sign': authToken, 'Jc-Request-Id': requestId, 'Jc-Time': jcTime, 'Jc-Signature': sig },
   });
   const text = await res.text();
   return text ? JSON.parse(text) : {};
@@ -103,38 +84,37 @@ async function post(url, body, extraHeaders = {}) {
   return res.json();
 }
 
-// ---- Auth Flow ----
+// ---- Auth ----
 async function connectWallet(privateKey) {
   const wallet = new ethers.Wallet(privateKey);
   const walletAddress = wallet.address;
-  console.log(`\n[*] Processing: ${walletAddress}`);
+  console.log(`\n[*] ${walletAddress}`);
 
-  const statusRes = await get(`${BASE_URL}/client/login/v1/registrationStatus`, { walletAddress });
-  const { registered } = statusRes.data;
-  console.log(`[*] Registered: ${registered}`);
-
+  const { data: { registered } } = await get(`${BASE_URL}/client/login/v1/registrationStatus`, { walletAddress });
   const action = registered ? 'login' : 'register';
-  const nonceRes = await get(`${BASE_URL}/client/auth/v1/nonce`, { walletAddress, action });
-  const { nonce, message } = nonceRes.data;
-  console.log(`[*] Nonce: ${nonce}`);
-
+  const { data: { nonce, message } } = await get(`${BASE_URL}/client/auth/v1/nonce`, { walletAddress, action });
   const signature = await wallet.signMessage(message);
 
-  const endpoint = registered
-    ? `${BASE_URL}/client/login/v1/login`
-    : `${BASE_URL}/client/login/v1/register`;
-
-  const registerRes = await post(endpoint, { walletAddress, inviteCode: INVITE_CODE, message, signature });
-  const data = registerRes.data;
+  const endpoint = registered ? `${BASE_URL}/client/login/v1/login` : `${BASE_URL}/client/login/v1/register`;
+  const { data } = await post(endpoint, { walletAddress, inviteCode: INVITE_CODE, message, signature });
   console.log(`[+] Auth OK! UID: ${data.uid}`);
 
   return { wallet, walletAddress, uid: data.uid, authToken: data.signature };
 }
 
-// ---- CheckIn Flow ----
+// ---- CheckIn ----
 async function checkIn({ wallet, walletAddress, uid, authToken }) {
-  console.log(`[*] CheckIn: ${walletAddress}`);
+  // Cek apakah sudah checkin hari ini
+  const infoRes = await signedGet('/client/taskhall/v1/checkIn/info', uid, authToken);
+  const info = infoRes?.data;
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
+  if (info?.chainStatus === 'confirmed' && info?.checkInDate === today) {
+    console.log(`[~] CheckIn sudah dilakukan hari ini (${today}), skip tx`);
+    return info;
+  }
+
+  console.log(`[*] CheckIn: ${walletAddress}`);
   const provider = new ethers.JsonRpcProvider(BSC_RPC);
   const signer = wallet.connect(provider);
 
@@ -145,61 +125,53 @@ async function checkIn({ wallet, walletAddress, uid, authToken }) {
     gasPrice: ethers.parseUnits('0.05', 'gwei'),
   });
 
-  console.log(`[*] Tx sent: ${tx.hash}`);
+  console.log(`[*] Tx: ${tx.hash}`);
   await tx.wait();
   console.log(`[*] Tx confirmed!`);
 
-  const checkInRes = await signedPost('/client/taskhall/v1/checkIn', { txHash: tx.hash }, uid, authToken);
-  console.log(`[*] CheckIn:`, JSON.stringify(checkInRes?.data));
+  await signedPost('/client/taskhall/v1/checkIn', { txHash: tx.hash }, uid, authToken);
 
   const reconcileRes = await signedPost('/client/taskhall/v1/checkIn/reconcile', {}, uid, authToken);
-  console.log(`[+] Reconcile: point=${reconcileRes?.data?.point}, total=${reconcileRes?.data?.totalPoint}`);
+  const d = reconcileRes?.data;
+  console.log(`[+] CheckIn OK! point=${d?.point}, total=${d?.totalPoint}, streak=${d?.continuousCheckInDays}`);
 
-  return reconcileRes?.data;
+  return d;
 }
 
-// ---- Telegram Bind Flow ----
+// ---- Telegram Bind ----
 async function bindTelegram({ uid, authToken }, sessionString) {
   console.log(`[*] Bind Telegram uid=${uid}`);
 
   const bindRes = await signedGet('/client/auth/v1/tgBindLink', uid, authToken);
   if (!bindRes?.data?.url) {
-    console.log(`[-] tgBindLink gagal:`, JSON.stringify(bindRes));
+    console.log(`[-] tgBindLink gagal`);
     return false;
   }
 
   const botUrl = bindRes.data.url;
-  console.log(`[*] Bot URL: ${botUrl}`);
-
-  // Panggil python: start bot + join group
   let pyOut = '';
   try {
     pyOut = execFileSync('python', [TG_BIND_SCRIPT, sessionString, botUrl], {
-      timeout: 60000,
-      encoding: 'utf-8',
+      timeout: 60000, encoding: 'utf-8',
     }).trim();
   } catch (e) {
     pyOut = (e.stdout || '').trim() || e.message;
   }
-  console.log(`[*] TG result: ${pyOut}`);
+  console.log(`[*] TG: ${pyOut}`);
 
-  if (pyOut.startsWith('ERROR')) {
-    console.log(`[-] Telegram error: ${pyOut}`);
-    return false;
-  }
+  if (pyOut.startsWith('ERROR')) return false;
 
-  // Konfirmasi ke server
   const checkRes = await signedPost('/client/taskhall/v1/checkTgJoin', {}, uid, authToken);
-  console.log(`[*] checkTgJoin:`, JSON.stringify(checkRes?.data));
+  const verified = checkRes?.data?.verified;
+  console.log(`[*] checkTgJoin: verified=${verified}`);
 
-  // Complete task chat (langsung done tanpa beneran chat)
   const chatRes = await signedPost('/client/taskhall/v1/completeTask', { platform: 'telegram', task_key: 'chat' }, uid, authToken);
-  console.log(`[+] completeTask chat:`, JSON.stringify(chatRes?.data));
+  console.log(`[+] completeTask chat: ${JSON.stringify(chatRes?.data)}`);
 
   return true;
 }
 
-// ---- Prompt Helper ----
+// ---- Prompt ----
 function prompt(question) {
   return new Promise(resolve => {
     process.stdout.write(question);
@@ -209,42 +181,33 @@ function prompt(question) {
 
 // ---- Main ----
 const ALL_KEYS = fs.readFileSync('wallet.txt', 'utf-8')
-  .split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  .split('\n').map(l => l.trim()).filter(Boolean);
 
 const ALL_SESSIONS = fs.existsSync('sessions.txt')
-  ? fs.readFileSync('sessions.txt', 'utf-8').split('\n').map(l => l.trim()).filter(l => l.length > 0)
+  ? fs.readFileSync('sessions.txt', 'utf-8').split('\n').map(l => l.trim()).filter(Boolean)
   : [];
 
 (async () => {
   console.log(`\n===== JOINCARE BOT =====`);
-  console.log(`Total wallet: ${ALL_KEYS.length} | Total session TG: ${ALL_SESSIONS.length}`);
-  console.log(`\nPilih mode:`);
-  console.log(`  1. Satu akun`);
-  console.log(`  2. Semua akun`);
-  console.log(`  3. Dari akun X sampai akhir`);
+  console.log(`Wallet: ${ALL_KEYS.length} | TG Session: ${ALL_SESSIONS.length}`);
+  console.log(`\n  1. Satu akun\n  2. Semua akun\n  3. Dari akun X sampai akhir`);
 
-  const mode = await prompt('\nPilihan (1/2/3): ');
-
+  const mode = await prompt('\nMode (1/2/3): ');
   let indices = [];
   if (mode === '1') {
-    const idx = parseInt(await prompt(`Akun ke berapa? (1-${ALL_KEYS.length}): `)) - 1;
+    const idx = parseInt(await prompt(`Akun ke? (1-${ALL_KEYS.length}): `)) - 1;
     indices = [idx];
   } else if (mode === '2') {
     indices = [...Array(ALL_KEYS.length).keys()];
   } else if (mode === '3') {
-    const from = parseInt(await prompt(`Mulai dari akun ke berapa? (1-${ALL_KEYS.length}): `)) - 1;
+    const from = parseInt(await prompt(`Mulai dari akun ke? (1-${ALL_KEYS.length}): `)) - 1;
     indices = [...Array(ALL_KEYS.length).keys()].slice(from);
   } else {
-    console.log('[-] Pilihan tidak valid.');
-    process.exit(1);
+    console.log('[-] Pilihan tidak valid.'); process.exit(1);
   }
 
-  console.log(`\nPilih task:`);
-  console.log(`  1. CheckIn daily`);
-  console.log(`  2. Bind Telegram`);
-  console.log(`  3. CheckIn + Bind Telegram`);
-
-  const task = await prompt('\nPilihan (1/2/3): ');
+  console.log(`\n  1. CheckIn daily\n  2. Bind Telegram\n  3. CheckIn + Bind Telegram`);
+  const task = await prompt('\nTask (1/2/3): ');
   process.stdin.destroy();
 
   for (const i of indices) {
@@ -254,17 +217,10 @@ const ALL_SESSIONS = fs.existsSync('sessions.txt')
 
     try {
       const account = await connectWallet(pk);
-
-      if (task === '1' || task === '3') {
-        await checkIn(account);
-      }
-
+      if (task === '1' || task === '3') await checkIn(account);
       if (task === '2' || task === '3') {
-        if (!session) {
-          console.log(`[-] Session TG ${i + 1} tidak ada, skip`);
-        } else {
-          await bindTelegram(account, session);
-        }
+        if (!session) console.log(`[-] Session TG ${i + 1} tidak ada, skip`);
+        else await bindTelegram(account, session);
       }
     } catch (err) {
       console.error(`[-] Error akun ${i + 1}:`, err.message);
