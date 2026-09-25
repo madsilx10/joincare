@@ -259,7 +259,21 @@ async function bindX({ uid, authToken }, xAccount) {
   console.log(`[*] HTML mid: ${getBody.slice(1000, 1500)}`);
   const freshCt0 = getCookies.ct0 || xAccount.ct0;
   const allCookies = { ...getCookies, auth_token: xAccount.authToken, ct0: freshCt0 };
+  if (guestToken) allCookies['gt'] = guestToken;
   const freshCookie = Object.entries(allCookies).map(([k, v]) => `${k}=${v}`).join('; ');
+
+  // Fetch guest token Twitter
+  console.log(`[*] Fetch guest token...`);
+  const gtRes = await fetch('https://api.x.com/1.1/guest/activate.json', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    },
+  });
+  const gtData = await gtRes.json();
+  const guestToken = gtData?.guest_token || '';
+  console.log(`[*] Guest token: ${guestToken ? guestToken.slice(0, 15) + '...' : '(gagal)'}`);
 
   console.log(`[*] POST authorize...`);
   const authorizeBody = new URLSearchParams({
@@ -286,6 +300,7 @@ async function bindX({ uid, authToken }, xAccount) {
       'Referer': oauthUrl,
       'X-Twitter-Auth-Type': 'OAuth2Session',
       'X-Twitter-Active-User': 'yes',
+      ...(guestToken ? { 'X-Guest-Token': guestToken } : {}),
     },
     body: authorizeBody.toString(),
     redirect: 'manual',
