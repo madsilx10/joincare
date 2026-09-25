@@ -102,12 +102,17 @@ async function connectWallet(privateKey) {
   return { wallet, walletAddress, uid: data.uid, authToken: data.signature };
 }
 
+// ---- Task Info ----
+async function getTaskInfo({ uid, authToken }) {
+  const res = await signedGet('/client/taskhall/v1/info', uid, authToken);
+  return res?.data || {};
+}
+
 // ---- CheckIn ----
 async function checkIn({ wallet, walletAddress, uid, authToken }) {
-  // Cek apakah sudah checkin hari ini
   const infoRes = await signedGet('/client/taskhall/v1/checkIn/info', uid, authToken);
   const info = infoRes?.data;
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const today = new Date().toISOString().slice(0, 10);
 
   if (info?.chainStatus === 'confirmed' && info?.checkInDate === today) {
     console.log(`[~] CheckIn sudah dilakukan hari ini (${today}), skip tx`);
@@ -171,12 +176,10 @@ async function bindTelegram({ uid, authToken }, sessionString) {
   return true;
 }
 
-
 // ---- X (Twitter) Bind ----
 async function bindX({ uid, authToken }, xAccount) {
   console.log(`[*] Bind X uid=${uid}`);
 
-  // Step 1: GET xLoginUrl → dapet OAuth URL + state + code_challenge
   const urlRes = await signedGet('/client/login/v1/xLoginUrl', uid, authToken);
   if (!urlRes?.data?.url) {
     console.log(`[-] xLoginUrl gagal`);
@@ -190,7 +193,6 @@ async function bindX({ uid, authToken }, xAccount) {
   const clientId = urlObj.searchParams.get('client_id');
   const redirectUri = urlObj.searchParams.get('redirect_uri');
 
-  // Step 2: POST ke x.com/2/oauth2/authorize dengan cookie X
   const xCookie = `auth_token=${xAccount.authToken}; ct0=${xAccount.ct0}`;
   const authorizeBody = new URLSearchParams({
     approval: 'true',
@@ -224,7 +226,6 @@ async function bindX({ uid, authToken }, xAccount) {
     return false;
   }
 
-  // Step 3: Extract code dari redirect URL
   const redirectObj = new URL(redirectUrl);
   const code = redirectObj.searchParams.get('code');
   if (!code) {
@@ -232,7 +233,6 @@ async function bindX({ uid, authToken }, xAccount) {
     return false;
   }
 
-  // Step 4: POST xLoginUrl ke joincare dengan code
   const loginRes = await signedPost('/client/login/v1/xLoginUrl', { code, state }, uid, authToken);
   console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
 
@@ -304,12 +304,23 @@ const ALL_X_ACCOUNTS = (() => {
 
       // Task lain hanya kalau mode "semua"
       if (task === '1') {
-        if (!session) console.log(`[-] Session TG ${i + 1} tidak ada, skip bind TG`);
-        else await bindTelegram(account, session);
+        const taskInfo = await getTaskInfo(account);
 
-        const xAccount = ALL_X_ACCOUNTS[i];
-        if (!xAccount) console.log(`[-] Akun X ${i + 1} tidak ada, skip bind X`);
-        else await bindX(account, xAccount);
+        if (taskInfo?.telegramTask?.status === 'COMPLETED') {
+          console.log(`[~] Bind TG sudah selesai, skip`);
+        } else if (!session) {
+          console.log(`[-] Session TG ${i + 1} tidak ada, skip bind TG`);
+        } else {
+          await bindTelegram(account, session);
+        }
+
+        if (taskInfo?.twitterTask?.status === 'COMPLETED') {
+          console.log(`[~] Bind X sudah selesai, skip`);
+        } else {
+          const xAccount = ALL_X_ACCOUNTS[i];
+          if (!xAccount) console.log(`[-] Akun X ${i + 1} tidak ada, skip bind X`);
+          else await bindX(account, xAccount);
+        }
       }
     } catch (err) {
       console.error(`[-] Error akun ${i + 1}:`, err.message);
