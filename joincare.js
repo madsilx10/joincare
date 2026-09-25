@@ -53,7 +53,12 @@ async function signedPost(urlPath, body, uid, authToken) {
     body: bodyStr,
   });
   const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch (e) {
+    console.log(`[!] Non-JSON POST ${urlPath} (${res.status}): ${text.slice(0, 200)}`);
+    return {};
+  }
 }
 
 async function signedGet(urlPath, uid, authToken) {
@@ -65,7 +70,12 @@ async function signedGet(urlPath, uid, authToken) {
     headers: { ...HEADERS, 'Jc-Person': String(uid), 'Jc-Sign': authToken, 'Jc-Request-Id': requestId, 'Jc-Time': jcTime, 'Jc-Signature': sig },
   });
   const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch (e) {
+    console.log(`[!] Non-JSON GET ${urlPath} (${res.status}): ${text.slice(0, 200)}`);
+    return {};
+  }
 }
 
 async function get(url, params = {}) {
