@@ -189,7 +189,7 @@ async function bindTelegram({ uid, authToken }, sessionString) {
 async function bindX({ uid, authToken }, xAccount) {
   console.log(`[*] Bind X uid=${uid}`);
 
-  const urlRes = await signedGet('/client/login/v1/xLoginUrl', uid, authToken);
+  const urlRes = await signedPost('/client/login/v1/xLoginUrl', {}, uid, authToken);
   if (!urlRes?.data?.url) {
     console.log(`[-] xLoginUrl gagal`);
     return false;
@@ -242,7 +242,7 @@ async function bindX({ uid, authToken }, xAccount) {
     return false;
   }
 
-  const loginRes = await signedPost('/client/login/v1/xLoginUrl', { code, state }, uid, authToken);
+  const loginRes = await signedPost('/client/auth/v1/xBinding', { code, state }, uid, authToken);
   console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
 
   return !!loginRes?.data;
