@@ -255,7 +255,7 @@ async function bindX({ uid, authToken }, xAccount) {
   }
 
   console.log(`[+] Code dapat!`);
-  const loginRes = await signedPost('/client/auth/v1/xBinding', { code, state }, uid, authToken);
+  const loginRes = await signedPost('/client/login/v1/xBinding', { code, state }, uid, authToken);
   console.log(`[+] Bind X: ${JSON.stringify(loginRes?.data)}`);
   return !!loginRes?.data;
 }
