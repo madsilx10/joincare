@@ -221,6 +221,13 @@ async function bindX({ uid, authToken }, xAccount) {
     redirect: 'manual',
   });
   console.log(`[*] GET consent status: ${getRes.status}`);
+  const getBody = await getRes.text();
+  // Cek apakah ada authenticity_token atau parameter tersembunyi
+  const authTokenMatch = getBody.match(/authenticity_token["\s]+value="([^"]+)"/);
+  const redirectMatch = getBody.match(/redirect_after_login["\s]+value="([^"]+)"/);
+  console.log(`[*] GET body snippet: ${getBody.slice(0, 500)}`);
+  if (authTokenMatch) console.log(`[*] authenticity_token: ${authTokenMatch[1]}`);
+  if (redirectMatch) console.log(`[*] redirect_after_login: ${redirectMatch[1]}`);
 
   // Ambil ct0 terbaru dari cookie response GET
   let freshCt0 = xAccount.ct0;
