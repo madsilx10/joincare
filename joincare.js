@@ -260,6 +260,66 @@ async function bindX({ uid, authToken }, xAccount) {
   return !!loginRes?.data;
 }
 
+// ---- Follow @TheJoinCare via Twitter API ----
+async function followOnX(xAccount) {
+  const res = await fetch('https://api.twitter.com/1.1/friendships/create.json', {
+    method: 'POST',
+    headers: {
+      'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+      'cookie': `auth_token=${xAccount.authToken}; ct0=${xAccount.ct0}`,
+      'x-csrf-token': xAccount.ct0,
+      'content-type': 'application/x-www-form-urlencoded',
+      'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      'x-twitter-active-user': 'yes',
+      'x-twitter-auth-type': 'OAuth2Session',
+      'origin': 'https://x.com',
+      'referer': 'https://x.com/',
+    },
+    body: new URLSearchParams({ screen_name: 'TheJoinCare' }).toString(),
+  });
+  const data = await res.json().catch(() => ({}));
+  const errors = data?.errors || [];
+  if (errors.some(e => e.code === 327)) {
+    console.log(`[~] Sudah follow @TheJoinCare, skip`);
+    return;
+  }
+  if (!res.ok) {
+    console.log(`[-] Follow gagal (${res.status}): ${JSON.stringify(data)}`);
+    return;
+  }
+  console.log(`[+] Follow @TheJoinCare OK`);
+}
+
+// ---- X Tasks ----
+async function doXTasks({ uid, authToken }, taskInfo, xAccount) {
+  const completedKeys = taskInfo?.twitterTask?.completedKeys || [];
+
+  const tasks = [
+    { task_id: 1, task_version: 1, task_key: 'follow' },
+    { task_id: 2, task_version: 9, task_key: 'like' },
+    { task_id: 3, task_version: 9, task_key: 'retweet' },
+    { task_id: 4, task_version: 9, task_key: 'reply' },
+  ];
+
+  for (const t of tasks) {
+    if (completedKeys.includes(t.task_key)) {
+      console.log(`[~] Task X ${t.task_key} sudah selesai, skip`);
+      continue;
+    }
+    if (t.task_key === 'follow') await followOnX(xAccount);
+    const res = await signedPost('/client/taskhall/v1/completeTask', {
+      platform: 'twitter',
+      task_id: t.task_id,
+      task_version: t.task_version,
+      task_key: t.task_key,
+      reply_text: '',
+    }, uid, authToken);
+    const ok = res?.status === true;
+    console.log(`[${ok ? '+' : '-'}] Task X ${t.task_key}: ${JSON.stringify(res?.data)}`);
+    await new Promise(r => setTimeout(r, 1500));
+  }
+}
+
 // ---- Prompt ----
 function prompt(question) {
   return new Promise(resolve => {
@@ -305,8 +365,8 @@ const ALL_X_ACCOUNTS = (() => {
     console.log('[-] Pilihan tidak valid.'); process.exit(1);
   }
 
-  console.log(`\n  1. Semua task (skip yg sudah selesai)\n  2. Daily checkin aja`);
-  const task = await prompt('\nTask (1/2): ');
+  console.log(`\n  1. Semua task (skip yg sudah selesai)\n  2. Daily checkin aja\n  3. Konek X doang`);
+  const task = await prompt('\nTask (1/2/3): ');
   process.stdin.destroy();
 
   for (const i of indices) {
@@ -318,7 +378,9 @@ const ALL_X_ACCOUNTS = (() => {
       const account = await connectWallet(pk);
       const taskInfo = await getTaskInfo(account);
 
-      await checkIn(account, taskInfo);
+      if (task === '1' || task === '2') {
+        await checkIn(account, taskInfo);
+      }
 
       if (task === '1') {
         if (taskInfo?.telegramTask?.status === 'COMPLETED') {
@@ -330,10 +392,25 @@ const ALL_X_ACCOUNTS = (() => {
         }
 
         if (taskInfo?.twitterTask?.status === 'COMPLETED') {
-          console.log(`[~] Bind X sudah selesai, skip`);
+          console.log(`[~] X tasks sudah selesai, skip`);
         } else {
           const xAccount = ALL_X_ACCOUNTS[i];
-          if (!xAccount) console.log(`[-] Akun X ${i + 1} tidak ada, skip bind X`);
+          if (!xAccount) {
+            console.log(`[-] Akun X ${i + 1} tidak ada, skip X`);
+          } else {
+            const completedKeys = taskInfo?.twitterTask?.completedKeys || [];
+            let canDoTasks = completedKeys.length > 0;
+            if (!canDoTasks) canDoTasks = await bindX(account, xAccount);
+            if (canDoTasks) await doXTasks(account, taskInfo, xAccount);
+            else console.log(`[-] Bind X gagal, skip tasks`);
+          }
+        }
+      } else if (task === '3') {
+        if (taskInfo?.twitterTask?.status === 'COMPLETED') {
+          console.log(`[~] X sudah terhubung & semua tasks selesai, skip`);
+        } else {
+          const xAccount = ALL_X_ACCOUNTS[i];
+          if (!xAccount) console.log(`[-] Akun X ${i + 1} tidak ada, skip`);
           else await bindX(account, xAccount);
         }
       }
