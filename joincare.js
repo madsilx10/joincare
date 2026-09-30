@@ -291,7 +291,7 @@ async function followOnX(xAccount) {
 }
 
 // ---- X Tasks ----
-async function doXTasks({ uid, authToken }, taskInfo, xAccount) {
+async function doXTasks({ uid, authToken }, taskInfo, xAccount, dailyOnly = false) {
   const completedKeys = taskInfo?.twitterTask?.completedKeys || [];
 
   const tasks = [
@@ -302,6 +302,7 @@ async function doXTasks({ uid, authToken }, taskInfo, xAccount) {
   ];
 
   for (const t of tasks) {
+    if (dailyOnly && t.task_key === 'follow') continue;
     if (completedKeys.includes(t.task_key)) {
       console.log(`[~] Task X ${t.task_key} sudah selesai, skip`);
       continue;
@@ -365,8 +366,8 @@ const ALL_X_ACCOUNTS = (() => {
     console.log('[-] Pilihan tidak valid.'); process.exit(1);
   }
 
-  console.log(`\n  1. Semua task (skip yg sudah selesai)\n  2. Daily checkin aja\n  3. Konek X doang`);
-  const task = await prompt('\nTask (1/2/3): ');
+  console.log(`\n  1. Semua task (skip yg sudah selesai)\n  2. Daily checkin aja\n  3. Konek X doang\n  4. X daily task aja (like/retweet/reply)\n  5. Checkin + X daily task`);
+  const task = await prompt('\nTask (1/2/3/4/5): ');
   process.stdin.destroy();
 
   for (const i of indices) {
@@ -378,7 +379,7 @@ const ALL_X_ACCOUNTS = (() => {
       const account = await connectWallet(pk);
       const taskInfo = await getTaskInfo(account);
 
-      if (task === '1' || task === '2') {
+      if (task === '1' || task === '2' || task === '5') {
         await checkIn(account, taskInfo);
       }
 
@@ -412,6 +413,13 @@ const ALL_X_ACCOUNTS = (() => {
           const xAccount = ALL_X_ACCOUNTS[i];
           if (!xAccount) console.log(`[-] Akun X ${i + 1} tidak ada, skip`);
           else await bindX(account, xAccount);
+        }
+      } else if (task === '4' || task === '5') {
+        const xAccount = ALL_X_ACCOUNTS[i];
+        if (!xAccount) {
+          console.log(`[-] Akun X ${i + 1} tidak ada, skip`);
+        } else {
+          await doXTasks(account, taskInfo, xAccount, true);
         }
       }
     } catch (err) {
