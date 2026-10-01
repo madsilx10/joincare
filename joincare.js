@@ -304,14 +304,17 @@ async function completeWithAutoVersion({ uid, authToken }, taskPayload) {
     console.log(`[~] Version cache ${task_key} (v${cached}) expired, cari versi baru...`);
   }
 
-  // Brute force dari v1 sampai v30
-  for (let v = 1; v <= 30; v++) {
-    if (v === cached) continue;
-    const res = await signedPost('/client/taskhall/v1/completeTask', { ...taskPayload, task_version: v }, uid, authToken);
-    if (res?.status === true) {
-      xVersionCache[task_key] = v;
-      console.log(`[~] Ketemu version ${task_key}: v${v}`);
-      return res;
+  // Brute force dari v1 sampai v50
+  for (let v = 1; v <= 50; v++) {
+    try {
+      const res = await signedPost('/client/taskhall/v1/completeTask', { ...taskPayload, task_version: v }, uid, authToken);
+      if (res?.status === true) {
+        xVersionCache[task_key] = v;
+        console.log(`[~] Ketemu version ${task_key}: v${v}`);
+        return res;
+      }
+    } catch (e) {
+      console.log(`[~] Brute force ${task_key} v${v} error: ${e.message}`);
     }
     await new Promise(r => setTimeout(r, 300));
   }
