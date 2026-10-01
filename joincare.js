@@ -291,14 +291,41 @@ async function followOnX(xAccount) {
 }
 
 // ---- X Tasks ----
+const xVersionCache = {}; // { task_key: task_version } — di-share antar akun
+
+async function completeWithAutoVersion({ uid, authToken }, taskPayload) {
+  const { task_key } = taskPayload;
+  const cached = xVersionCache[task_key];
+
+  // Coba cached version dulu
+  if (cached) {
+    const res = await signedPost('/client/taskhall/v1/completeTask', { ...taskPayload, task_version: cached }, uid, authToken);
+    if (res?.status === true) return res;
+    console.log(`[~] Version cache ${task_key} (v${cached}) expired, cari versi baru...`);
+  }
+
+  // Brute force dari v1 sampai v30
+  for (let v = 1; v <= 30; v++) {
+    if (v === cached) continue;
+    const res = await signedPost('/client/taskhall/v1/completeTask', { ...taskPayload, task_version: v }, uid, authToken);
+    if (res?.status === true) {
+      xVersionCache[task_key] = v;
+      console.log(`[~] Ketemu version ${task_key}: v${v}`);
+      return res;
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return null;
+}
+
 async function doXTasks({ uid, authToken }, taskInfo, xAccount, dailyOnly = false) {
   const completedKeys = taskInfo?.twitterTask?.completedKeys || [];
 
   const tasks = [
     { task_id: 1, task_version: 1, task_key: 'follow' },
-    { task_id: 2, task_version: 9, task_key: 'like' },
-    { task_id: 3, task_version: 9, task_key: 'retweet' },
-    { task_id: 4, task_version: 9, task_key: 'reply' },
+    { task_id: 2, task_key: 'like' },
+    { task_id: 3, task_key: 'retweet' },
+    { task_id: 4, task_key: 'reply' },
   ];
 
   for (const t of tasks) {
@@ -308,15 +335,14 @@ async function doXTasks({ uid, authToken }, taskInfo, xAccount, dailyOnly = fals
       continue;
     }
     if (t.task_key === 'follow') await followOnX(xAccount);
-    const res = await signedPost('/client/taskhall/v1/completeTask', {
-      platform: 'twitter',
-      task_id: t.task_id,
-      task_version: t.task_version,
-      task_key: t.task_key,
-      reply_text: '',
-    }, uid, authToken);
+
+    const payload = { platform: 'twitter', task_id: t.task_id, task_key: t.task_key, reply_text: '' };
+    const res = t.task_key === 'follow'
+      ? await signedPost('/client/taskhall/v1/completeTask', { ...payload, task_version: 1 }, uid, authToken)
+      : await completeWithAutoVersion({ uid, authToken }, payload);
+
     const ok = res?.status === true;
-    console.log(`[${ok ? '+' : '-'}] Task X ${t.task_key}: ${JSON.stringify(res?.data)}`);
+    console.log(`[${ok ? '+' : '-'}] Task X ${t.task_key}${ok ? '' : `: ${JSON.stringify(res)}`}`);
     await new Promise(r => setTimeout(r, 1500));
   }
 }
