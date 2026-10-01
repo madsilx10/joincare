@@ -308,6 +308,7 @@ async function completeWithAutoVersion({ uid, authToken }, taskPayload) {
   for (let v = 1; v <= 50; v++) {
     try {
       const res = await signedPost('/client/taskhall/v1/completeTask', { ...taskPayload, task_version: v }, uid, authToken);
+      console.log(`[~] ${task_key} v${v}: ${JSON.stringify(res)}`);
       if (res?.status === true) {
         xVersionCache[task_key] = v;
         console.log(`[~] Ketemu version ${task_key}: v${v}`);
