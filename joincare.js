@@ -290,46 +290,54 @@ async function followOnX(xAccount) {
   console.log(`[+] Follow @TheJoinCare OK`);
 }
 
-// ---- X Tasks ----
-const xVersionCache = {}; // { task_key: task_version } — di-share antar akun
+// ---- X Version ----
+const VERSION_FILE = 'version.json';
 
-async function completeWithAutoVersion({ uid, authToken }, taskPayload) {
-  const { task_key } = taskPayload;
-  const cached = xVersionCache[task_key];
-
-  // Coba cached version dulu
-  if (cached) {
-    const res = await signedPost('/client/taskhall/v1/completeTask', { ...taskPayload, task_version: cached }, uid, authToken);
-    if (res?.status === true) return res;
-    console.log(`[~] Version cache ${task_key} (v${cached}) expired, cari versi baru...`);
+function loadSavedVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(VERSION_FILE, 'utf8'));
+  } catch {
+    return null;
   }
-
-  // Brute force dari v1 sampai v50
-  for (let v = 1; v <= 50; v++) {
-    try {
-      const res = await signedPost('/client/taskhall/v1/completeTask', { ...taskPayload, task_version: v }, uid, authToken);
-      console.log(`[~] ${task_key} v${v}: ${JSON.stringify(res)}`);
-      if (res?.status === true) {
-        xVersionCache[task_key] = v;
-        console.log(`[~] Ketemu version ${task_key}: v${v}`);
-        return res;
-      }
-    } catch (e) {
-      console.log(`[~] Brute force ${task_key} v${v} error: ${e.message}`);
-    }
-    await new Promise(r => setTimeout(r, 300));
-  }
-  return null;
 }
 
-async function doXTasks({ uid, authToken }, taskInfo, xAccount, dailyOnly = false) {
+function saveVersion(version) {
+  const date = new Date().toISOString().slice(0, 10);
+  fs.writeFileSync(VERSION_FILE, JSON.stringify({ version, date }));
+}
+
+async function resolveXVersion(promptFn) {
+  const today = new Date().toISOString().slice(0, 10);
+  const saved = loadSavedVersion();
+
+  if (saved) {
+    if (saved.date === today) {
+      console.log(`[~] Pakai version v${saved.version} (tersimpan hari ini)`);
+      return saved.version;
+    }
+    const diffDays = Math.round((new Date(today) - new Date(saved.date)) / 86400000);
+    const predicted = saved.version + diffDays;
+    const input = await promptFn(`Task X version? [auto v${predicted}, enter=confirm / ketik manual]: `);
+    const v = input === '' ? predicted : parseInt(input);
+    saveVersion(v);
+    return v;
+  }
+
+  const input = await promptFn('Task X version? (cek devtools payload completeTask): ');
+  const v = parseInt(input);
+  saveVersion(v);
+  return v;
+}
+
+// ---- X Tasks ----
+async function doXTasks({ uid, authToken }, taskInfo, xAccount, xVersion, dailyOnly = false) {
   const completedKeys = taskInfo?.twitterTask?.completedKeys || [];
 
   const tasks = [
-    { task_id: 1, task_version: 1, task_key: 'follow' },
-    { task_id: 2, task_key: 'like' },
-    { task_id: 3, task_key: 'retweet' },
-    { task_id: 4, task_key: 'reply' },
+    { task_id: 1, task_version: 1,        task_key: 'follow' },
+    { task_id: 2, task_version: xVersion,  task_key: 'like' },
+    { task_id: 3, task_version: xVersion,  task_key: 'retweet' },
+    { task_id: 4, task_version: xVersion,  task_key: 'reply' },
   ];
 
   for (const t of tasks) {
@@ -340,10 +348,13 @@ async function doXTasks({ uid, authToken }, taskInfo, xAccount, dailyOnly = fals
     }
     if (t.task_key === 'follow') await followOnX(xAccount);
 
-    const payload = { platform: 'twitter', task_id: t.task_id, task_key: t.task_key, reply_text: '' };
-    const res = t.task_key === 'follow'
-      ? await signedPost('/client/taskhall/v1/completeTask', { ...payload, task_version: 1 }, uid, authToken)
-      : await completeWithAutoVersion({ uid, authToken }, payload);
+    const res = await signedPost('/client/taskhall/v1/completeTask', {
+      platform: 'twitter',
+      task_id: t.task_id,
+      task_version: t.task_version,
+      task_key: t.task_key,
+      reply_text: '',
+    }, uid, authToken);
 
     const ok = res?.status === true;
     console.log(`[${ok ? '+' : '-'}] Task X ${t.task_key}${ok ? '' : `: ${JSON.stringify(res)}`}`);
@@ -398,6 +409,12 @@ const ALL_X_ACCOUNTS = (() => {
 
   console.log(`\n  1. Semua task (skip yg sudah selesai)\n  2. Daily checkin aja\n  3. Konek X doang\n  4. X daily task aja (like/retweet/reply)\n  5. Checkin + X daily task`);
   const task = await prompt('\nTask (1/2/3/4/5): ');
+
+  let xVersion = null;
+  if (['1', '4', '5'].includes(task)) {
+    xVersion = await resolveXVersion(prompt);
+  }
+
   process.stdin.destroy();
 
   for (const i of indices) {
@@ -432,7 +449,7 @@ const ALL_X_ACCOUNTS = (() => {
             const completedKeys = taskInfo?.twitterTask?.completedKeys || [];
             let canDoTasks = completedKeys.length > 0;
             if (!canDoTasks) canDoTasks = await bindX(account, xAccount);
-            if (canDoTasks) await doXTasks(account, taskInfo, xAccount);
+            if (canDoTasks) await doXTasks(account, taskInfo, xAccount, xVersion);
             else console.log(`[-] Bind X gagal, skip tasks`);
           }
         }
@@ -449,7 +466,7 @@ const ALL_X_ACCOUNTS = (() => {
         if (!xAccount) {
           console.log(`[-] Akun X ${i + 1} tidak ada, skip`);
         } else {
-          await doXTasks(account, taskInfo, xAccount, true);
+          await doXTasks(account, taskInfo, xAccount, xVersion, true);
         }
       }
     } catch (err) {
