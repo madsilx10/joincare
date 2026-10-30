@@ -9,6 +9,7 @@ const BSC_RPC = 'https://bsc-dataseed.binance.org/';
 const CHECKIN_CONTRACT = ethers.getAddress('0xe029161be55922edf3ec9d222142edf057d196ee');
 const CHECKIN_DATA = '0x183ff085';
 const TG_BIND_SCRIPT = path.join(__dirname, 'tg_bind.py');
+const TG_DAILY_SCRIPT = path.join(__dirname, 'tg_daily.py');
 
 const HEADERS = {
   'Content-Type': 'application/json',
@@ -183,6 +184,20 @@ async function bindTelegram({ uid, authToken }, sessionString) {
   console.log(`[+] completeTask chat: ${JSON.stringify(chatRes?.data)}`);
 
   return true;
+}
+
+// ---- TG Daily Chat ----
+async function sendTgDaily(sessionString, idx) {
+  console.log(`[*] TG Daily chat akun ${idx + 1}`);
+  let pyOut = '';
+  try {
+    pyOut = execFileSync('python', [TG_DAILY_SCRIPT, sessionString], {
+      timeout: 60000, encoding: 'utf-8',
+    }).trim();
+  } catch (e) {
+    pyOut = (e.stdout || '').trim() || e.message;
+  }
+  console.log(`[*] TG Daily: ${pyOut}`);
 }
 
 // ---- X (Twitter) Bind ----
@@ -407,8 +422,8 @@ const ALL_X_ACCOUNTS = (() => {
     console.log('[-] Pilihan tidak valid.'); process.exit(1);
   }
 
-  console.log(`\n  1. Semua task (skip yg sudah selesai)\n  2. Daily checkin aja\n  3. Konek X doang\n  4. X daily task aja (like/retweet/reply)\n  5. Checkin + X daily task`);
-  const task = await prompt('\nTask (1/2/3/4/5): ');
+  console.log(`\n  1. Semua task (skip yg sudah selesai)\n  2. Daily checkin aja\n  3. Konek X doang\n  4. X daily task aja (like/retweet/reply)\n  5. Checkin + X daily task\n  6. Daily TG chat`);
+  const task = await prompt('\nTask (1/2/3/4/5/6): ');
 
   let xVersion = null;
   if (['1', '4', '5'].includes(task)) {
@@ -420,6 +435,16 @@ const ALL_X_ACCOUNTS = (() => {
   for (const i of indices) {
     const pk = ALL_KEYS[i];
     const session = ALL_SESSIONS[i];
+
+    if (task === '6') {
+      if (!session) { console.log(`[-] Session TG ${i + 1} tidak ada, skip`); }
+      else { await sendTgDaily(session, i); }
+      const delay = Math.floor(Math.random() * 12000) + 3000;
+      console.log(`[~] Jeda ${(delay / 1000).toFixed(1)}s...`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+
     if (!pk) { console.log(`[-] Wallet ${i + 1} tidak ada`); continue; }
 
     try {
